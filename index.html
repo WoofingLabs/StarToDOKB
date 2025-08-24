@@ -102,7 +102,7 @@
             display: block;
             margin-bottom: 5px;
         }
-        .section input, .section textarea, .section select {
+        .section input, .section select {
             width: 100%;
             padding: 10px;
             border-radius: 5px;
@@ -112,9 +112,13 @@
             font-size: 14px;
             margin-bottom: 10px;
         }
-        .section textarea {
-            height: 120px;
-            resize: vertical;
+        .section input[type="number"] {
+            -moz-appearance: textfield;
+        }
+        .section input::-webkit-outer-spin-button,
+        .section input::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
         }
         .nft-list {
             max-height: 200px;
@@ -137,7 +141,7 @@
             .action-btn { padding: 10px 20px; font-size: 14px; }
             .section { padding: 15px; }
             .section h2 { font-size: 20px; }
-            .section input, .section textarea, .section select { font-size: 12px; }
+            .section input, .section select { font-size: 12px; }
         }
     </style>
 </head>
@@ -149,6 +153,21 @@
             STAR 余额: <span id="starBalance">0</span>
         </div>
         <button id="connectWalletBtn" class="action-btn">连接钱包</button>
+    </div>
+
+    <div class="section">
+        <h2>用 STAR 兑换 NFT</h2>
+        <div class="exchange-info">
+            当前兑换率: <span id="exchangeRate">100000 STAR/NFT</span><br>
+            STAR 代币地址: 0x552473D6B6b72092aaecd8c4290b91a4Db89e7f6
+        </div>
+        <label for="exchangeTokenId">输入或选择要兑换的 NFT (tokenId):</label>
+        <input type="number" id="exchangeTokenId" placeholder="输入 tokenId 或从下拉框选择">
+        <select id="availableTokenIds" onchange="document.getElementById('exchangeTokenId').value = this.value;">
+            <option value="">从可用 NFT 选择</option>
+        </select>
+        <button id="approveStarBtn" class="action-btn" onclick="approveStarToken()" disabled>授权 STAR</button>
+        <button id="exchangeBtn" class="action-btn" onclick="exchangeNFT()" disabled>兑换 NFT</button>
     </div>
 
     <div class="section">
@@ -165,20 +184,6 @@
         <input type="text" id="depositTokenIds" placeholder="例如: 10001,10002,10003">
         <button id="approveNFTBtn" class="action-btn" onclick="approveNFTContract()" disabled>授权 NFT</button>
         <button id="depositNFTsBtn" class="action-btn" onclick="depositNFTs()" disabled>充值 NFT</button>
-    </div>
-
-    <div class="section">
-        <h2>用 STAR 兑换 NFT</h2>
-        <div class="exchange-info">
-            当前兑换率: <span id="exchangeRate">100000 STAR/NFT</span><br>
-            STAR 代币地址: 0x552473D6B6b72092aaecd8c4290b91a4Db89e7f6
-        </div>
-        <label for="exchangeTokenId">选择要兑换的 NFT (tokenId):</label>
-        <select id="exchangeTokenId">
-            <option value="">请选择 NFT</option>
-        </select>
-        <button id="approveStarBtn" class="action-btn" onclick="approveStarToken()" disabled>授权 STAR</button>
-        <button id="exchangeBtn" class="action-btn" onclick="exchangeNFT()" disabled>兑换 NFT</button>
     </div>
 
     <div id="modal" class="modal">
@@ -305,6 +310,7 @@
                 document.getElementById('approveNFTBtn').disabled = false;
                 document.getElementById('approveStarBtn').disabled = false;
                 showModal('钱包已连接！');
+                await fetchAvailableNFTs(); // 连接钱包后立即获取可用 NFT
             } catch (error) {
                 showModal(`连接失败: ${error.message || '未知错误'}`);
             } finally {
@@ -374,7 +380,6 @@
                 nftList.innerHTML = cachedTokenIds.size > 0 
                     ? `<p>您拥有 ${cachedTokenIds.size} 个 NFT：${Array.from(cachedTokenIds).slice(0, 5).join(', ')}${cachedTokenIds.size > 5 ? ' 等...' : ''}</p>`
                     : '<p>未找到您的 NFT，请确认网络或稍后重试。</p>';
-                await fetchAvailableNFTs();
             } catch (error) {
                 showModal(`获取 NFT 失败: ${error.message.includes('429') ? 'API 速率限制，请稍后重试' : error.message || '未知错误'}<br>请确认网络连接。`);
                 document.getElementById('nftList').innerHTML = '<p>查询 NFT 失败。</p>';
@@ -385,21 +390,22 @@
         }
 
         async function fetchAvailableNFTs() {
+            if (!web3 || !exchangeContract) return;
             try {
                 availableTokenIds = await retryWithBackoff(() => 
                     exchangeContract.methods.getAvailableTokenIds().call()
                 );
-                const select = document.getElementById('exchangeTokenId');
-                select.innerHTML = '<option value="">请选择 NFT</option>';
+                const select = document.getElementById('availableTokenIds');
+                select.innerHTML = '<option value="">从可用 NFT 选择</option>';
                 availableTokenIds.forEach(tokenId => {
                     const option = document.createElement('option');
                     option.value = tokenId;
                     option.text = `Token ID: ${tokenId}`;
                     select.appendChild(option);
                 });
-                document.getElementById('exchangeBtn').disabled = availableTokenIds.length === 0;
             } catch (error) {
                 console.warn(`获取可用 NFT 失败: ${error.message}`);
+                showModal('无法获取可用 NFT 列表，请手动输入 tokenId 或稍后重试。');
             }
         }
 
@@ -453,7 +459,7 @@
                 );
                 if (allowance >= exchangeRate * 10**18) {
                     showModal('STAR 代币已授权！');
-                    document.getElementById('exchangeBtn').disabled = document.getElementById('exchangeTokenId').value === '';
+                    document.getElementById('exchangeBtn').disabled = !document.getElementById('exchangeTokenId').value;
                 } else {
                     const gasEstimate = await retryWithBackoff(() => 
                         starContract.methods.approve(EXCHANGE_CONTRACT_ADDRESS, exchangeRate * 10**18).estimateGas({ from: accounts[0] })
@@ -463,7 +469,7 @@
                         gas: Math.floor(gasEstimate * 1.2) 
                     });
                     showModal('STAR 授权成功！');
-                    document.getElementById('exchangeBtn').disabled = document.getElementById('exchangeTokenId').value === '';
+                    document.getElementById('exchangeBtn').disabled = !document.getElementById('exchangeTokenId').value;
                 }
             } catch (error) {
                 showModal(`授权失败: ${error.message.includes('429') ? 'API 速率限制，请稍后重试' : error.message || '未知错误'}`);
@@ -507,6 +513,7 @@
                 });
                 showModal('NFT 充值成功！');
                 await fetchOwnedNFTs();
+                await fetchAvailableNFTs();
                 document.getElementById('depositTokenIds').value = '';
             } catch (error) {
                 showModal(`充值失败: ${error.message.includes('429') ? 'API 速率限制，请稍后重试' : error.message || '未知错误'}<br>请确认 tokenId 或授权状态。`);
@@ -526,14 +533,21 @@
             exchangeButton.classList.add('loading');
             exchangeButton.disabled = true;
             try {
-                const tokenId = document.getElementById('exchangeTokenId').value;
-                if (!tokenId) {
-                    showModal('请选择一个 tokenId！');
+                const tokenId = document.getElementById('exchangeTokenId').value.trim();
+                if (!tokenId || isNaN(tokenId) || parseInt(tokenId) <= 0) {
+                    showModal('请输入有效的 tokenId！');
                     return;
                 }
                 const balance = await retryWithBackoff(() => starContract.methods.balanceOf(accounts[0]).call());
                 if (balance < exchangeRate * 10**18) {
                     showModal(`STAR 余额不足！需要 ${exchangeRate} STAR，当前余额 ${(balance / 10**18).toFixed(2)} STAR。`);
+                    return;
+                }
+                const allowance = await retryWithBackoff(() => 
+                    starContract.methods.allowance(accounts[0], EXCHANGE_CONTRACT_ADDRESS).call()
+                );
+                if (allowance < exchangeRate * 10**18) {
+                    showModal('请先授权 STAR 代币！');
                     return;
                 }
                 const gasEstimate = await retryWithBackoff(() => 
@@ -545,12 +559,15 @@
                 });
                 showModal('NFT 兑换成功！');
                 await fetchOwnedNFTs();
+                await fetchAvailableNFTs();
                 await updateWalletInfo();
+                document.getElementById('exchangeTokenId').value = '';
+                document.getElementById('availableTokenIds').value = '';
             } catch (error) {
                 showModal(`兑换失败: ${error.message.includes('429') ? 'API 速率限制，请稍后重试' : error.message.includes('Insufficient STAR balance') ? 'STAR 余额不足' : error.message.includes('NFT not in contract') ? '所选 NFT 不可用' : error.message || '未知错误'}`);
             } finally {
                 exchangeButton.classList.remove('loading');
-                exchangeButton.disabled = document.getElementById('exchangeTokenId').value === '';
+                exchangeButton.disabled = !document.getElementById('exchangeTokenId').value;
             }
         }
 
@@ -581,8 +598,13 @@
         });
 
         document.getElementById('connectWalletBtn').addEventListener('click', connectWallet);
-        document.getElementById('exchangeTokenId').addEventListener('change', () => {
-            document.getElementById('exchangeBtn').disabled = document.getElementById('exchangeTokenId').value === '';
+        document.getElementById('exchangeTokenId').addEventListener('input', () => {
+            document.getElementById('exchangeBtn').disabled = !document.getElementById('exchangeTokenId').value;
+            document.getElementById('availableTokenIds').value = ''; // 清空下拉框选择
+        });
+        document.getElementById('availableTokenIds').addEventListener('change', () => {
+            document.getElementById('exchangeTokenId').value = document.getElementById('availableTokenIds').value;
+            document.getElementById('exchangeBtn').disabled = !document.getElementById('exchangeTokenId').value;
         });
     </script>
 </body>
