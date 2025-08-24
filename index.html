@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>STAR 与 OKB NFT 兑换</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: linear-gradient(135deg, #1a1a1a, #2d2d2d);
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+            color: #fff;
+        }
+        h1 {
+            font-size: 36px;
+            color: #ff8c00;
+            margin-bottom: 10px;
+        }
+        .wallet-info {
+            margin: 10px 0;
+            font-size: 16px;
+            background: #2d2d2d;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .action-btn {
+            padding: 12px 24px;
+            font-size: 16px;
+            background: #ff8c00;
+            color: #fff;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        .action-btn:hover {
+            background: #e07b00;
+        }
+        .action-btn:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        .action-btn.loading {
+            opacity: 0.7;
+            pointer-events: none;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .modal-content {
+            background: #2d2d2d;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            color: #fff;
+            max-width: 400px;
+            width: 90%;
+        }
+        .modal-content p {
+            margin-bottom: 15px;
+            font-size: 16px;
+        }
+        .modal-content button {
+            padding: 8px 16px;
+            background: #ff8c00;
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .section {
+            margin: 20px 0;
+            width: 100%;
+            max-width: 600px;
+            background: #2d2d2d;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+        }
+        .section h2 {
+            font-size: 24px;
+            color: #ff8c00;
+            margin-bottom: 15px;
+        }
+        .section label {
+            font-size: 14px;
+            color: #ff8c00;
+            display: block;
+            margin-bottom: 5px;
+        }
+        .section input, .section textarea, .section select {
+            width: 100%;
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #ff8c00;
+            background: #1a1a1a;
+            color: #fff;
+            font-size: 14px;
+            margin-bottom: 10px;
+        }
+        .section textarea {
+            height: 120px;
+            resize: vertical;
+        }
+        .nft-list {
+            max-height: 200px;
+            overflow-y: auto;
+            padding: 10px;
+            background: #1a1a1a;
+            border-radius: 5px;
+        }
+        .nft-list p {
+            margin: 5px 0;
+        }
+        .exchange-info {
+            font-size: 14px;
+            color: #ccc;
+            margin-bottom: 10px;
+        }
+        @media (max-width: 768px) {
+            h1 { font-size: 28px; }
+            .wallet-info { font-size: 14px; }
+            .action-btn { padding: 10px 20px; font-size: 14px; }
+            .section { padding: 15px; }
+            .section h2 { font-size: 20px; }
+            .section input, .section textarea, .section select { font-size: 12px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>STAR 与 OKB NFT 兑换</h1>
+        <div class="wallet-info">
+            钱包地址: <span id="walletAddress">未连接</span><br>
+            STAR 余额: <span id="starBalance">0</span>
+        </div>
+        <button id="connectWalletBtn" class="action-btn">连接钱包</button>
+    </div>
+
+    <div class="section">
+        <h2>获取您的 NFT</h2>
+        <label for="contractAddress">NFT 合约地址:</label>
+        <input type="text" id="contractAddress" value="0xBf13Ed020DCF22bc8216A23A1167A5d1fDC2D0E" readonly>
+        <button id="fetchNFTsBtn" class="action-btn" onclick="fetchOwnedNFTs()" disabled>获取我的 NFT</button>
+        <div class="nft-list" id="nftList"><p>请先连接钱包并获取 NFT</p></div>
+    </div>
+
+    <div class="section">
+        <h2>批量充值 NFT</h2>
+        <label for="depositTokenIds">选择要充值的 NFT (tokenId，逗号分隔):</label>
+        <input type="text" id="depositTokenIds" placeholder="例如: 10001,10002,10003">
+        <button id="approveNFTBtn" class="action-btn" onclick="approveNFTContract()" disabled>授权 NFT</button>
+        <button id="depositNFTsBtn" class="action-btn" onclick="depositNFTs()" disabled>充值 NFT</button>
+    </div>
+
+    <div class="section">
+        <h2>用 STAR 兑换 NFT</h2>
+        <div class="exchange-info">
+            当前兑换率: <span id="exchangeRate">100000 STAR/NFT</span><br>
+            STAR 代币地址: 0x552473D6B6b72092aaecd8c4290b91a4Db89e7f6
+        </div>
+        <label for="exchangeTokenId">选择要兑换的 NFT (tokenId):</label>
+        <select id="exchangeTokenId">
+            <option value="">请选择 NFT</option>
+        </select>
+        <button id="approveStarBtn" class="action-btn" onclick="approveStarToken()" disabled>授权 STAR</button>
+        <button id="exchangeBtn" class="action-btn" onclick="exchangeNFT()" disabled>兑换 NFT</button>
+    </div>
+
+    <div id="modal" class="modal">
+        <div class="modal-content">
+            <p id="modalMessage"></p>
+            <button onclick="closeModal()">确定</button>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/web3@1.7.0/dist/web3.min.js"></script>
+    <script>
+        let web3, accounts, starContract, nftContract, exchangeContract;
+        const EXCHANGE_CONTRACT_ADDRESS = "0xC6D2f8B932D15e7cE978E53B32Ad0bC375D2Ca89";
+        const STAR_TOKEN_ADDRESS = "0x552473D6B6b72092aaecd8c4290b91a4Db89e7f6";
+        const OKB_NFT_ADDRESS = "0xBf13Ed020DCF22bc8216A23A1167A5d1fDC2D0E";
+        const X_LAYER_CHAIN_ID = "0xc4"; // Chain ID 196
+        let cachedTokenIds = new Set(), availableTokenIds = [], exchangeRate = 0;
+
+        const ERC20_ABI = [
+            {"inputs":[],"name":"balanceOf","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+            {"inputs":[{"internalType":"address","name":"spender","type":"address"},{"internalType":"uint256","name":"amount","type":"uint256"}],"name":"approve","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"nonpayable","type":"function"},
+            {"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"address","name":"spender","type":"address"}],"name":"allowance","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+            {"inputs":[],"name":"decimals","outputs":[{"internalType":"uint8","name":"","type":"uint8"}],"stateMutability":"view","type":"function"}
+        ];
+
+        const ERC721_ABI = [
+            {"inputs":[{"internalType":"address","name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+            {"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"address","name":"operator","type":"address"}],"name":"isApprovedForAll","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},
+            {"inputs":[{"internalType":"address","name":"operator","type":"address"},{"internalType":"bool","name":"_approved","type":"bool"}],"name":"setApprovalForAll","outputs":[],"stateMutability":"nonpayable","type":"function"},
+            {"inputs":[{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"ownerOf","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"}
+        ];
+
+        const EXCHANGE_ABI = [
+            {"inputs":[{"internalType":"uint256","name":"_tokenId","type":"uint256"}],"name":"exchange","outputs":[],"stateMutability":"nonpayable","type":"function"},
+            {"inputs":[{"internalType":"uint256[]","name":"_tokenIds","type":"uint256[]"}],"name":"depositNFTs","outputs":[],"stateMutability":"nonpayable","type":"function"},
+            {"inputs":[],"name":"exchangeRate","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+            {"inputs":[],"name":"getAvailableTokenIds","outputs":[{"internalType":"uint256[]","name":"","type":"uint256[]"}],"stateMutability":"view","type":"function"},
+            {"inputs":[{"internalType":"uint256","name":"page","type":"uint256"},{"internalType":"uint256","name":"pageSize","type":"uint256"}],"name":"getAvailableTokenIdsPaginated","outputs":[{"internalType":"uint256[]","name":"","type":"uint256[]"}],"stateMutability":"view","type":"function"},
+            {"inputs":[],"name":"getStarDecimals","outputs":[{"internalType":"uint8","name":"","type":"uint8"}],"stateMutability":"view","type":"function"}
+        ];
+
+        async function switchToXLayer() {
+            try {
+                await window.ethereum.request({
+                    method: 'wallet_switchEthereumChain',
+                    params: [{ chainId: X_LAYER_CHAIN_ID }],
+                });
+            } catch (switchError) {
+                if (switchError.code === 4902) {
+                    await window.ethereum.request({
+                        method: 'wallet_addEthereumChain',
+                        params: [{
+                            chainId: X_LAYER_CHAIN_ID,
+                            chainName: 'X Layer mainnet',
+                            nativeCurrency: { name: 'OKB', symbol: 'OKB', decimals: 18 },
+                            rpcUrls: ['https://xlayerrpc.okx.com'],
+                            blockExplorerUrls: ['https://www.okx.com/web3/explorer/xlayer']
+                        }],
+                    });
+                } else {
+                    showModal('请切换到 X Layer 主网（Chain ID: 196）。');
+                }
+            }
+        }
+
+        async function checkNetwork() {
+            const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+            if (chainId !== X_LAYER_CHAIN_ID) {
+                await switchToXLayer();
+                const newChainId = await window.ethereum.request({ method: 'eth_chainId' });
+                if (newChainId !== X_LAYER_CHAIN_ID) {
+                    showModal('请切换到 X Layer 主网（Chain ID: 196）。');
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        function showModal(message) {
+            document.getElementById('modalMessage').innerHTML = message;
+            document.getElementById('modal').style.display = 'flex';
+        }
+
+        function closeModal() {
+            document.getElementById('modal').style.display = 'none';
+        }
+
+        async function retryWithBackoff(fn, maxRetries = 5, delay = 1000) {
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    return await fn();
+                } catch (error) {
+                    if (error.message.includes('429') && i < maxRetries - 1) {
+                        console.warn(`429 错误，重试 ${i + 1}/${maxRetries}，延迟 ${delay}ms`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        delay = Math.min(delay * 2, 8000);
+                        continue;
+                    }
+                    throw error;
+                }
+            }
+        }
+
+        async function connectWallet() {
+            const connectButton = document.getElementById('connectWalletBtn');
+            connectButton.classList.add('loading');
+            if (!window.ethereum) {
+                showModal('请安装 MetaMask 钱包。');
+                connectButton.classList.remove('loading');
+                return;
+            }
+            try {
+                web3 = new Web3(window.ethereum);
+                if (!(await checkNetwork())) {
+                    connectButton.classList.remove('loading');
+                    return;
+                }
+                accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+                starContract = new web3.eth.Contract(ERC20_ABI, STAR_TOKEN_ADDRESS);
+                nftContract = new web3.eth.Contract(ERC721_ABI, OKB_NFT_ADDRESS);
+                exchangeContract = new web3.eth.Contract(EXCHANGE_ABI, EXCHANGE_CONTRACT_ADDRESS);
+                await updateWalletInfo();
+                document.getElementById('fetchNFTsBtn').disabled = false;
+                document.getElementById('approveNFTBtn').disabled = false;
+                document.getElementById('approveStarBtn').disabled = false;
+                showModal('钱包已连接！');
+            } catch (error) {
+                showModal(`连接失败: ${error.message || '未知错误'}`);
+            } finally {
+                connectButton.classList.remove('loading');
+            }
+        }
+
+        async function updateWalletInfo() {
+            if (!accounts || accounts.length === 0) {
+                document.getElementById('walletAddress').innerText = '未连接';
+                document.getElementById('starBalance').innerText = '0';
+            } else {
+                document.getElementById('walletAddress').innerText = `${accounts[0].slice(0, 6)}...${accounts[0].slice(-4)}`;
+                const balance = await retryWithBackoff(() => starContract.methods.balanceOf(accounts[0]).call());
+                const decimals = await retryWithBackoff(() => starContract.methods.decimals().call());
+                document.getElementById('starBalance').innerText = (balance / 10**decimals).toFixed(2);
+                const rate = await retryWithBackoff(() => exchangeContract.methods.exchangeRate().call());
+                exchangeRate = rate / 10**decimals;
+                document.getElementById('exchangeRate').innerText = `${exchangeRate.toFixed(2)} STAR/NFT`;
+            }
+        }
+
+        async function fetchOwnedNFTs() {
+            if (!(await checkNetwork())) return;
+            if (!web3 || !nftContract || !accounts) {
+                showModal('请先连接钱包！');
+                return;
+            }
+            const fetchButton = document.getElementById('fetchNFTsBtn');
+            fetchButton.classList.add('loading');
+            fetchButton.disabled = true;
+            try {
+                const nftList = document.getElementById('nftList');
+                nftList.innerHTML = '<p>正在查询您的 NFT...</p>';
+                const balance = await retryWithBackoff(() => nftContract.methods.balanceOf(accounts[0]).call());
+                if (balance == 0) {
+                    nftList.innerHTML = '<p>您没有持有任何 NFT。</p>';
+                    showModal('您没有持有任何 OKB NFT！');
+                    return;
+                }
+                cachedTokenIds = new Set();
+                try {
+                    const events = await retryWithBackoff(() => 
+                        nftContract.getPastEvents('Transfer', {
+                            filter: { to: accounts[0] },
+                            fromBlock: 0,
+                            toBlock: 'latest'
+                        })
+                    );
+                    for (const event of events) {
+                        const tokenId = event.returnValues.tokenId;
+                        try {
+                            const owner = await retryWithBackoff(() => 
+                                nftContract.methods.ownerOf(tokenId).call()
+                            );
+                            if (owner.toLowerCase() === accounts[0].toLowerCase()) {
+                                cachedTokenIds.add(tokenId);
+                            }
+                        } catch (error) {
+                            console.log(`跳过 tokenId ${tokenId}：验证失败 (${error.message})`);
+                        }
+                    }
+                } catch (error) {
+                    console.warn(`事件查询失败: ${error.message}`);
+                    showModal('事件查询失败，将尝试其他方式获取 NFT...');
+                }
+                nftList.innerHTML = cachedTokenIds.size > 0 
+                    ? `<p>您拥有 ${cachedTokenIds.size} 个 NFT：${Array.from(cachedTokenIds).slice(0, 5).join(', ')}${cachedTokenIds.size > 5 ? ' 等...' : ''}</p>`
+                    : '<p>未找到您的 NFT，请确认网络或稍后重试。</p>';
+                await fetchAvailableNFTs();
+            } catch (error) {
+                showModal(`获取 NFT 失败: ${error.message.includes('429') ? 'API 速率限制，请稍后重试' : error.message || '未知错误'}<br>请确认网络连接。`);
+                document.getElementById('nftList').innerHTML = '<p>查询 NFT 失败。</p>';
+            } finally {
+                fetchButton.classList.remove('loading');
+                fetchButton.disabled = false;
+            }
+        }
+
+        async function fetchAvailableNFTs() {
+            try {
+                availableTokenIds = await retryWithBackoff(() => 
+                    exchangeContract.methods.getAvailableTokenIds().call()
+                );
+                const select = document.getElementById('exchangeTokenId');
+                select.innerHTML = '<option value="">请选择 NFT</option>';
+                availableTokenIds.forEach(tokenId => {
+                    const option = document.createElement('option');
+                    option.value = tokenId;
+                    option.text = `Token ID: ${tokenId}`;
+                    select.appendChild(option);
+                });
+                document.getElementById('exchangeBtn').disabled = availableTokenIds.length === 0;
+            } catch (error) {
+                console.warn(`获取可用 NFT 失败: ${error.message}`);
+            }
+        }
+
+        async function approveNFTContract() {
+            if (!(await checkNetwork())) return;
+            if (!web3 || !nftContract || !accounts) {
+                showModal('请先连接钱包！');
+                return;
+            }
+            const approveButton = document.getElementById('approveNFTBtn');
+            approveButton.classList.add('loading');
+            approveButton.disabled = true;
+            try {
+                const isApproved = await retryWithBackoff(() => 
+                    nftContract.methods.isApprovedForAll(accounts[0], EXCHANGE_CONTRACT_ADDRESS).call()
+                );
+                if (isApproved) {
+                    showModal('NFT 合约已授权！');
+                    document.getElementById('depositNFTsBtn').disabled = false;
+                } else {
+                    const gasEstimate = await retryWithBackoff(() => 
+                        nftContract.methods.setApprovalForAll(EXCHANGE_CONTRACT_ADDRESS, true).estimateGas({ from: accounts[0] })
+                    );
+                    await nftContract.methods.setApprovalForAll(EXCHANGE_CONTRACT_ADDRESS, true).send({ 
+                        from: accounts[0], 
+                        gas: Math.floor(gasEstimate * 1.2) 
+                    });
+                    showModal('NFT 授权成功！');
+                    document.getElementById('depositNFTsBtn').disabled = false;
+                }
+            } catch (error) {
+                showModal(`授权失败: ${error.message.includes('429') ? 'API 速率限制，请稍后重试' : error.message || '未知错误'}`);
+            } finally {
+                approveButton.classList.remove('loading');
+                approveButton.disabled = false;
+            }
+        }
+
+        async function approveStarToken() {
+            if (!(await checkNetwork())) return;
+            if (!web3 || !starContract || !accounts) {
+                showModal('请先连接钱包！');
+                return;
+            }
+            const approveButton = document.getElementById('approveStarBtn');
+            approveButton.classList.add('loading');
+            approveButton.disabled = true;
+            try {
+                const allowance = await retryWithBackoff(() => 
+                    starContract.methods.allowance(accounts[0], EXCHANGE_CONTRACT_ADDRESS).call()
+                );
+                if (allowance >= exchangeRate * 10**18) {
+                    showModal('STAR 代币已授权！');
+                    document.getElementById('exchangeBtn').disabled = document.getElementById('exchangeTokenId').value === '';
+                } else {
+                    const gasEstimate = await retryWithBackoff(() => 
+                        starContract.methods.approve(EXCHANGE_CONTRACT_ADDRESS, exchangeRate * 10**18).estimateGas({ from: accounts[0] })
+                    );
+                    await starContract.methods.approve(EXCHANGE_CONTRACT_ADDRESS, exchangeRate * 10**18).send({ 
+                        from: accounts[0], 
+                        gas: Math.floor(gasEstimate * 1.2) 
+                    });
+                    showModal('STAR 授权成功！');
+                    document.getElementById('exchangeBtn').disabled = document.getElementById('exchangeTokenId').value === '';
+                }
+            } catch (error) {
+                showModal(`授权失败: ${error.message.includes('429') ? 'API 速率限制，请稍后重试' : error.message || '未知错误'}`);
+            } finally {
+                approveButton.classList.remove('loading');
+                approveButton.disabled = false;
+            }
+        }
+
+        async function depositNFTs() {
+            if (!(await checkNetwork())) return;
+            if (!web3 || !nftContract || !exchangeContract || !accounts) {
+                showModal('请先连接钱包并授权！');
+                return;
+            }
+            const depositButton = document.getElementById('depositNFTsBtn');
+            depositButton.classList.add('loading');
+            depositButton.disabled = true;
+            try {
+                const tokenIdsInput = document.getElementById('depositTokenIds').value.trim();
+                const tokenIds = tokenIdsInput.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id));
+                if (tokenIds.length === 0) {
+                    showModal('请输入有效的 tokenId！');
+                    return;
+                }
+                for (const tokenId of tokenIds) {
+                    const owner = await retryWithBackoff(() => 
+                        nftContract.methods.ownerOf(tokenId).call()
+                    );
+                    if (owner.toLowerCase() !== accounts[0].toLowerCase()) {
+                        showModal(`tokenId ${tokenId} 不属于您！`);
+                        return;
+                    }
+                }
+                const gasEstimate = await retryWithBackoff(() => 
+                    exchangeContract.methods.depositNFTs(tokenIds).estimateGas({ from: accounts[0] })
+                );
+                await exchangeContract.methods.depositNFTs(tokenIds).send({ 
+                    from: accounts[0], 
+                    gas: Math.floor(gasEstimate * 1.2) 
+                });
+                showModal('NFT 充值成功！');
+                await fetchOwnedNFTs();
+                document.getElementById('depositTokenIds').value = '';
+            } catch (error) {
+                showModal(`充值失败: ${error.message.includes('429') ? 'API 速率限制，请稍后重试' : error.message || '未知错误'}<br>请确认 tokenId 或授权状态。`);
+            } finally {
+                depositButton.classList.remove('loading');
+                depositButton.disabled = false;
+            }
+        }
+
+        async function exchangeNFT() {
+            if (!(await checkNetwork())) return;
+            if (!web3 || !exchangeContract || !accounts) {
+                showModal('请先连接钱包并授权！');
+                return;
+            }
+            const exchangeButton = document.getElementById('exchangeBtn');
+            exchangeButton.classList.add('loading');
+            exchangeButton.disabled = true;
+            try {
+                const tokenId = document.getElementById('exchangeTokenId').value;
+                if (!tokenId) {
+                    showModal('请选择一个 tokenId！');
+                    return;
+                }
+                const balance = await retryWithBackoff(() => starContract.methods.balanceOf(accounts[0]).call());
+                if (balance < exchangeRate * 10**18) {
+                    showModal(`STAR 余额不足！需要 ${exchangeRate} STAR，当前余额 ${(balance / 10**18).toFixed(2)} STAR。`);
+                    return;
+                }
+                const gasEstimate = await retryWithBackoff(() => 
+                    exchangeContract.methods.exchange(tokenId).estimateGas({ from: accounts[0] })
+                );
+                await exchangeContract.methods.exchange(tokenId).send({ 
+                    from: accounts[0], 
+                    gas: Math.floor(gasEstimate * 1.2) 
+                });
+                showModal('NFT 兑换成功！');
+                await fetchOwnedNFTs();
+                await updateWalletInfo();
+            } catch (error) {
+                showModal(`兑换失败: ${error.message.includes('429') ? 'API 速率限制，请稍后重试' : error.message.includes('Insufficient STAR balance') ? 'STAR 余额不足' : error.message.includes('NFT not in contract') ? '所选 NFT 不可用' : error.message || '未知错误'}`);
+            } finally {
+                exchangeButton.classList.remove('loading');
+                exchangeButton.disabled = document.getElementById('exchangeTokenId').value === '';
+            }
+        }
+
+        window.onload = () => {
+            if (!window.ethereum) {
+                showModal('请安装 MetaMask 钱包。');
+            }
+        };
+
+        window.ethereum?.on('chainChanged', () => {
+            window.location.reload();
+        });
+
+        window.ethereum?.on('accountsChanged', (newAccounts) => {
+            accounts = newAccounts;
+            cachedTokenIds = new Set();
+            availableTokenIds = [];
+            updateWalletInfo();
+            if (newAccounts.length === 0) {
+                document.getElementById('fetchNFTsBtn').disabled = true;
+                document.getElementById('approveNFTBtn').disabled = true;
+                document.getElementById('depositNFTsBtn').disabled = true;
+                document.getElementById('approveStarBtn').disabled = true;
+                document.getElementById('exchangeBtn').disabled = true;
+            } else {
+                connectWallet();
+            }
+        });
+
+        document.getElementById('connectWalletBtn').addEventListener('click', connectWallet);
+        document.getElementById('exchangeTokenId').addEventListener('change', () => {
+            document.getElementById('exchangeBtn').disabled = document.getElementById('exchangeTokenId').value === '';
+        });
+    </script>
+</body>
+</html>
