@@ -471,16 +471,25 @@
             const fetchButton = document.getElementById('fetchNFTsBtn');
             fetchButton.classList.add('loading');
             fetchButton.disabled = true;
+            const nftList = document.getElementById('nftList');
+            const ownedNFTsTextarea = document.getElementById('ownedNFTs');
+            if (!nftList || !ownedNFTsTextarea) {
+                showModal('页面错误：无法找到 NFT 列表或输出框！');
+                fetchButton.classList.remove('loading');
+                fetchButton.disabled = false;
+                return;
+            }
             try {
                 const startTokenId = parseInt(document.getElementById('startTokenId').value.trim());
                 const tokenCount = parseInt(document.getElementById('tokenCount').value.trim());
                 if (isNaN(startTokenId) || startTokenId < 0 || isNaN(tokenCount) || tokenCount <= 0 || tokenCount > 100) {
                     showModal('请输入有效的起始 tokenId 和查询数量（最多 100）！');
+                    nftList.innerHTML = '<p>请输入有效的起始 tokenId 和查询数量。</p>';
+                    ownedNFTsTextarea.value = '';
                     return;
                 }
-                const nftList = document.getElementById('nftList');
-                const ownedNFTsTextarea = document.getElementById('ownedNFTs');
                 nftList.innerHTML = '<p>正在查询您的 NFT...</p>';
+                ownedNFTsTextarea.value = '查询中...';
                 cachedTokenIds = new Set();
                 for (let i = 0; i < tokenCount; i++) {
                     const tokenId = startTokenId + i;
@@ -507,8 +516,8 @@
                 }
             } catch (error) {
                 showModal(`获取 NFT 失败: ${error.message.includes('429') ? 'API 速率限制，请稍后重试' : error.message || '未知错误'}<br>请确认网络连接或输入参数。`);
-                document.getElementById('nftList').innerHTML = '<p>查询 NFT 失败。</p>';
-                document.getElementById('ownedNFTs').value = '查询失败';
+                nftList.innerHTML = '<p>查询 NFT 失败。</p>';
+                ownedNFTsTextarea.value = '查询失败';
             } finally {
                 fetchButton.classList.remove('loading');
                 fetchButton.disabled = false;
@@ -529,7 +538,6 @@
                         const tokenURI = await retryWithBackoff(() => 
                             nftContract.methods.tokenURI(tokenId).call()
                         );
-                        // 假设 tokenURI 返回 JSON 元数据，尝试解析名称
                         const response = await fetch(tokenURI);
                         const metadata = await response.json();
                         if (metadata.name) {
@@ -537,7 +545,6 @@
                         }
                     } catch (error) {
                         console.warn(`无法获取 tokenId ${tokenId} 的元数据: ${error.message}`);
-                        // 回退到默认名称
                     }
                     const option = document.createElement('option');
                     option.value = tokenId;
