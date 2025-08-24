@@ -102,7 +102,7 @@
             display: block;
             margin-bottom: 5px;
         }
-        .section input, .section select {
+        .section input, .section select, .section textarea {
             width: 100%;
             padding: 10px;
             border-radius: 5px;
@@ -119,6 +119,10 @@
         .section input::-webkit-inner-spin-button {
             -webkit-appearance: none;
             margin: 0;
+        }
+        .section textarea {
+            resize: vertical;
+            min-height: 100px;
         }
         .nft-list {
             max-height: 200px;
@@ -148,7 +152,7 @@
             .action-btn { padding: 10px 20px; font-size: 14px; }
             .section { padding: 15px; }
             .section h2 { font-size: 20px; }
-            .section input, .section select { font-size: 12px; }
+            .section input, .section select, .section textarea { font-size: 12px; }
             .input-group { flex-direction: column; gap: 5px; }
         }
     </style>
@@ -187,7 +191,8 @@
             <input type="number" id="tokenCount" placeholder="查询数量">
         </div>
         <button id="fetchNFTsBtn" class="action-btn" onclick="fetchOwnedNFTs()" disabled>获取我的 NFT</button>
-        <div class="nft-list" id="nftList"><p>请先连接钱包并输入起始 tokenId 和数量</p></div>
+        <label for="ownedNFTs">您的 NFT (tokenId，逗号分隔，可复制):</label>
+        <textarea id="ownedNFTs" readonly placeholder="查询后显示您的 NFT tokenId"></textarea>
     </div>
 
     <div class="section">
@@ -283,6 +288,13 @@
                 "inputs": [{"internalType": "uint256", "name": "tokenId", "type": "uint256"}],
                 "name": "ownerOf",
                 "outputs": [{"internalType": "address", "name": "", "type": "address"}],
+                "stateMutability": "view",
+                "type": "function"
+            },
+            {
+                "inputs": [{"internalType": "uint256", "name": "tokenId", "type": "uint256"}],
+                "name": "tokenURI",
+                "outputs": [{"internalType": "string", "name": "", "type": "string"}],
                 "stateMutability": "view",
                 "type": "function"
             }
@@ -462,11 +474,12 @@
             try {
                 const startTokenId = parseInt(document.getElementById('startTokenId').value.trim());
                 const tokenCount = parseInt(document.getElementById('tokenCount').value.trim());
-                if (isNaN(startTokenId) || startTokenId < 0 || isNaN(tokenCount) || tokenCount <= 0) {
-                    showModal('请输入有效的起始 tokenId 和查询数量！');
+                if (isNaN(startTokenId) || startTokenId < 0 || isNaN(tokenCount) || tokenCount <= 0 || tokenCount > 100) {
+                    showModal('请输入有效的起始 tokenId 和查询数量（最多 100）！');
                     return;
                 }
                 const nftList = document.getElementById('nftList');
+                const ownedNFTsTextarea = document.getElementById('ownedNFTs');
                 nftList.innerHTML = '<p>正在查询您的 NFT...</p>';
                 cachedTokenIds = new Set();
                 for (let i = 0; i < tokenCount; i++) {
@@ -482,15 +495,20 @@
                         console.log(`跳过 tokenId ${tokenId}：${error.message}`);
                     }
                 }
+                const tokenIdList = Array.from(cachedTokenIds).sort((a, b) => a - b).join(',');
                 nftList.innerHTML = cachedTokenIds.size > 0 
                     ? `<p>您拥有 ${cachedTokenIds.size} 个 NFT：${Array.from(cachedTokenIds).slice(0, 5).join(', ')}${cachedTokenIds.size > 5 ? ' 等...' : ''}</p>`
                     : '<p>未找到您的 NFT，请检查起始 tokenId 和数量。</p>';
+                ownedNFTsTextarea.value = tokenIdList || '无 NFT';
                 if (cachedTokenIds.size === 0) {
                     showModal('未找到您的 NFT，请确认输入的 tokenId 范围！');
+                } else {
+                    showModal('NFT 查询完成！请从下方文本框复制 tokenId 列表。');
                 }
             } catch (error) {
                 showModal(`获取 NFT 失败: ${error.message.includes('429') ? 'API 速率限制，请稍后重试' : error.message || '未知错误'}<br>请确认网络连接或输入参数。`);
                 document.getElementById('nftList').innerHTML = '<p>查询 NFT 失败。</p>';
+                document.getElementById('ownedNFTs').value = '查询失败';
             } finally {
                 fetchButton.classList.remove('loading');
                 fetchButton.disabled = false;
@@ -505,12 +523,27 @@
                 );
                 const select = document.getElementById('availableTokenIds');
                 select.innerHTML = '<option value="">从可用 NFT 选择</option>';
-                availableTokenIds.forEach(tokenId => {
+                for (const tokenId of availableTokenIds) {
+                    let nftName = `OKB #${tokenId}`;
+                    try {
+                        const tokenURI = await retryWithBackoff(() => 
+                            nftContract.methods.tokenURI(tokenId).call()
+                        );
+                        // 假设 tokenURI 返回 JSON 元数据，尝试解析名称
+                        const response = await fetch(tokenURI);
+                        const metadata = await response.json();
+                        if (metadata.name) {
+                            nftName = `${metadata.name}.okb (ID: ${tokenId})`;
+                        }
+                    } catch (error) {
+                        console.warn(`无法获取 tokenId ${tokenId} 的元数据: ${error.message}`);
+                        // 回退到默认名称
+                    }
                     const option = document.createElement('option');
                     option.value = tokenId;
-                    option.text = `OKB #${tokenId}`;
+                    option.text = nftName;
                     select.appendChild(option);
-                });
+                }
             } catch (error) {
                 console.warn(`获取可用 NFT 失败: ${error.message}`);
                 showModal('无法获取可用 NFT 列表，请手动输入 tokenId 或稍后重试。');
