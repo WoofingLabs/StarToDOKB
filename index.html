@@ -187,12 +187,13 @@
         <label for="contractAddress">NFT 合约地址:</label>
         <input type="text" id="contractAddress" value="0xbf13ed020dcf22bc8216a23a1167a5dd1fdc2d0e" readonly>
         <div class="input-group">
-            <input type="number" id="startTokenId" placeholder="起始 tokenId">
-            <input type="number" id="tokenCount" placeholder="查询数量">
+            <input type="number" id="startTokenId" placeholder="起始 tokenId (如 10001)">
+            <input type="number" id="tokenCount" placeholder="查询数量 (最多 100)">
         </div>
         <button id="fetchNFTsBtn" class="action-btn" onclick="fetchOwnedNFTs()" disabled>获取我的 NFT</button>
         <label for="ownedNFTs">您的 NFT (tokenId，逗号分隔，可复制):</label>
-        <textarea id="ownedNFTs" readonly placeholder="查询后显示您的 NFT tokenId"></textarea>
+        <textarea id="ownedNFTs" readonly placeholder="查询后显示您的 NFT tokenId（如 10001,10002,10003）"></textarea>
+        <div class="nft-list" id="nftList"><p>请先连接钱包并输入起始 tokenId 和数量</p></div>
     </div>
 
     <div class="section">
@@ -482,52 +483,57 @@
             const nftList = document.getElementById('nftList');
             const ownedNFTsTextarea = document.getElementById('ownedNFTs');
             if (!nftList || !ownedNFTsTextarea) {
-                showModal('页面错误：无法找到 NFT 列表或输出框！请检查页面结构。');
+                console.error('DOM 错误：nftList 或 ownedNFTs 未找到');
+                console.log('nftList:', document.getElementById('nftList'));
+                console.log('ownedNFTs:', document.getElementById('ownedNFTs'));
+                showModal('页面错误：无法找到 NFT 列表或输出框！请检查页面结构或刷新页面。');
                 fetchButton.classList.remove('loading');
                 fetchButton.disabled = false;
                 return;
             }
             try {
-                const startTokenId = parseInt(document.getElementById('startTokenId').value.trim());
-                const tokenCount = parseInt(document.getElementById('tokenCount').value.trim());
+                const startTokenId = parseInt(document.getElementById('startTokenId').value.trim()) || 10001;
+                const tokenCount = parseInt(document.getElementById('tokenCount').value.trim()) || 10;
                 if (isNaN(startTokenId) || startTokenId < 0 || isNaN(tokenCount) || tokenCount <= 0 || tokenCount > 100) {
-                    showModal('请输入有效的起始 tokenId 和查询数量（最多 100）！');
+                    showModal('请输入有效的起始 tokenId 和查询数量（最多 100）！建议从 10001 开始。');
                     nftList.innerHTML = '<p>请输入有效的起始 tokenId 和查询数量。</p>';
                     ownedNFTsTextarea.value = '';
+                    fetchButton.classList.remove('loading');
+                    fetchButton.disabled = false;
                     return;
                 }
                 nftList.innerHTML = '<p>正在查询您的 NFT...</p>';
                 ownedNFTsTextarea.value = '查询中...';
                 cachedTokenIds = new Set();
-                console.log(`开始查询 NFT：起始 tokenId = ${startTokenId}，数量 = ${tokenCount}`);
+                console.log(`[NFT 查询] 开始：起始 tokenId = ${startTokenId}，数量 = ${tokenCount}，钱包 = ${accounts[0]}`);
                 for (let i = 0; i < tokenCount; i++) {
                     const tokenId = startTokenId + i;
                     try {
                         const owner = await retryWithBackoff(() => 
                             nftContract.methods.ownerOf(tokenId).call()
                         );
-                        console.log(`tokenId ${tokenId} 的拥有者: ${owner}`);
+                        console.log(`[NFT 查询] tokenId ${tokenId} 的拥有者: ${owner}`);
                         if (owner.toLowerCase() === accounts[0].toLowerCase()) {
                             cachedTokenIds.add(tokenId.toString());
-                            console.log(`添加 tokenId ${tokenId} 到列表`);
+                            console.log(`[NFT 查询] 添加 tokenId ${tokenId} 到列表`);
                         }
                     } catch (error) {
-                        console.log(`跳过 tokenId ${tokenId}：${error.message}`);
+                        console.log(`[NFT 查询] 跳过 tokenId ${tokenId}：${error.message}`);
                     }
                 }
                 const tokenIdList = Array.from(cachedTokenIds).sort((a, b) => a - b).join(',');
-                console.log(`查询结果：${tokenIdList || '无 NFT'}`);
+                console.log(`[NFT 查询] 结果：${tokenIdList || '无 NFT'}`);
                 nftList.innerHTML = cachedTokenIds.size > 0 
                     ? `<p>您拥有 ${cachedTokenIds.size} 个 NFT：${Array.from(cachedTokenIds).slice(0, 5).join(', ')}${cachedTokenIds.size > 5 ? ' 等...' : ''}</p>`
-                    : '<p>未找到您的 NFT，请检查起始 tokenId 和数量或确认钱包是否持有 NFT。</p>';
+                    : '<p>未找到您的 NFT，请检查起始 tokenId（如 10001）和数量，或确认钱包是否持有 NFT。</p>';
                 ownedNFTsTextarea.value = tokenIdList || '无 NFT';
                 if (cachedTokenIds.size === 0) {
-                    showModal('未找到您的 NFT！请确认输入的 tokenId 范围或钱包是否持有 NFT。');
+                    showModal('未找到您的 NFT！请确认输入的 tokenId 范围（如从 10001 开始）或钱包是否持有 NFT。');
                 } else {
-                    showModal('NFT 查询完成！请从下方文本框复制 tokenId 列表。');
+                    showModal('NFT 查询完成！请从下方文本框复制 tokenId 列表（如 10001,10002,10003）。');
                 }
             } catch (error) {
-                console.error(`获取 NFT 失败: ${error.message}`);
+                console.error(`[NFT 查询] 失败: ${error.message}`);
                 showModal(`获取 NFT 失败: ${error.message.includes('429') ? 'API 速率限制，请稍后重试' : error.message || '未知错误'}<br>请检查网络连接、输入参数或控制台日志。`);
                 nftList.innerHTML = '<p>查询 NFT 失败，请检查控制台日志。</p>';
                 ownedNFTsTextarea.value = '查询失败';
@@ -736,6 +742,9 @@
             if (!window.ethereum) {
                 showModal('请安装 MetaMask 钱包。');
             }
+            // 调试 DOM 是否正确加载
+            console.log('[DOM 检查] nftList:', document.getElementById('nftList'));
+            console.log('[DOM 检查] ownedNFTs:', document.getElementById('ownedNFTs'));
         };
 
         window.ethereum?.on('chainChanged', () => {
