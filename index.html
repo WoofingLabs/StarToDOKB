@@ -135,6 +135,13 @@
             color: #ccc;
             margin-bottom: 10px;
         }
+        .input-group {
+            display: flex;
+            gap: 10px;
+        }
+        .input-group input {
+            flex: 1;
+        }
         @media (max-width: 768px) {
             h1 { font-size: 28px; }
             .wallet-info { font-size: 14px; }
@@ -142,6 +149,7 @@
             .section { padding: 15px; }
             .section h2 { font-size: 20px; }
             .section input, .section select { font-size: 12px; }
+            .input-group { flex-direction: column; gap: 5px; }
         }
     </style>
 </head>
@@ -159,7 +167,7 @@
         <h2>用 STAR 兑换 NFT</h2>
         <div class="exchange-info">
             当前兑换率: <span id="exchangeRate">100000 STAR/NFT</span><br>
-            STAR 代币地址: 0x552473D6B6b72092aaecd8c4290b91a4Db89e7f6
+            STAR 代币地址: 0x552473d6b6b72092aaecd8c4290b91a4db89e7f6
         </div>
         <label for="exchangeTokenId">输入或选择要兑换的 NFT (tokenId):</label>
         <input type="number" id="exchangeTokenId" placeholder="输入 tokenId 或从下拉框选择">
@@ -174,8 +182,12 @@
         <h2>获取您的 NFT</h2>
         <label for="contractAddress">NFT 合约地址:</label>
         <input type="text" id="contractAddress" value="0xbf13ed020dcf22bc8216a23a1167a5dd1fdc2d0e" readonly>
+        <div class="input-group">
+            <input type="number" id="startTokenId" placeholder="起始 tokenId">
+            <input type="number" id="tokenCount" placeholder="查询数量">
+        </div>
         <button id="fetchNFTsBtn" class="action-btn" onclick="fetchOwnedNFTs()" disabled>获取我的 NFT</button>
-        <div class="nft-list" id="nftList"><p>请先连接钱包并获取 NFT</p></div>
+        <div class="nft-list" id="nftList"><p>请先连接钱包并输入起始 tokenId 和数量</p></div>
     </div>
 
     <div class="section">
@@ -196,17 +208,15 @@
     <script src="https://cdn.jsdelivr.net/npm/web3@1.7.0/dist/web3.min.js"></script>
     <script>
         let web3, accounts, starContract, nftContract, exchangeContract;
-        const EXCHANGE_CONTRACT_ADDRESS = "0xC6D2f8B932D15e7cE978E53B32Ad0bC375D2Ca89";
-        const STAR_TOKEN_ADDRESS = "0x552473D6B6b72092aaecd8c4290b91a4Db89e7f6";
+        const EXCHANGE_CONTRACT_ADDRESS = "0xc6d2f8b932d15e7ce978e53b32ad0bc375d2ca89";
+        const STAR_TOKEN_ADDRESS = "0x552473d6b6b72092aaecd8c4290b91a4db89e7f6";
         const OKB_NFT_ADDRESS = "0xbf13ed020dcf22bc8216a23a1167a5dd1fdc2d0e";
         const X_LAYER_CHAIN_ID = "0xc4"; // Chain ID 196
         let cachedTokenIds = new Set(), availableTokenIds = [], exchangeRate = 0;
 
         const ERC20_ABI = [
             {
-                "inputs": [
-                    {"internalType": "address", "name": "account", "type": "address"}
-                ],
+                "inputs": [{"internalType": "address", "name": "account", "type": "address"}],
                 "name": "balanceOf",
                 "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}],
                 "stateMutability": "view",
@@ -450,45 +460,36 @@
             fetchButton.classList.add('loading');
             fetchButton.disabled = true;
             try {
-                const nftList = document.getElementById('nftList');
-                nftList.innerHTML = '<p>正在查询您的 NFT...</p>';
-                const balance = await retryWithBackoff(() => nftContract.methods.balanceOf(accounts[0]).call());
-                if (balance == 0) {
-                    nftList.innerHTML = '<p>您没有持有任何 NFT。</p>';
-                    showModal('您没有持有任何 OKB NFT！');
+                const startTokenId = parseInt(document.getElementById('startTokenId').value.trim());
+                const tokenCount = parseInt(document.getElementById('tokenCount').value.trim());
+                if (isNaN(startTokenId) || startTokenId < 0 || isNaN(tokenCount) || tokenCount <= 0) {
+                    showModal('请输入有效的起始 tokenId 和查询数量！');
                     return;
                 }
+                const nftList = document.getElementById('nftList');
+                nftList.innerHTML = '<p>正在查询您的 NFT...</p>';
                 cachedTokenIds = new Set();
-                try {
-                    const events = await retryWithBackoff(() => 
-                        nftContract.getPastEvents('Transfer', {
-                            filter: { to: accounts[0] },
-                            fromBlock: 0,
-                            toBlock: 'latest'
-                        })
-                    );
-                    for (const event of events) {
-                        const tokenId = event.returnValues.tokenId;
-                        try {
-                            const owner = await retryWithBackoff(() => 
-                                nftContract.methods.ownerOf(tokenId).call()
-                            );
-                            if (owner.toLowerCase() === accounts[0].toLowerCase()) {
-                                cachedTokenIds.add(tokenId);
-                            }
-                        } catch (error) {
-                            console.log(`跳过 tokenId ${tokenId}：验证失败 (${error.message})`);
+                for (let i = 0; i < tokenCount; i++) {
+                    const tokenId = startTokenId + i;
+                    try {
+                        const owner = await retryWithBackoff(() => 
+                            nftContract.methods.ownerOf(tokenId).call()
+                        );
+                        if (owner.toLowerCase() === accounts[0].toLowerCase()) {
+                            cachedTokenIds.add(tokenId.toString());
                         }
+                    } catch (error) {
+                        console.log(`跳过 tokenId ${tokenId}：${error.message}`);
                     }
-                } catch (error) {
-                    console.warn(`事件查询失败: ${error.message}`);
-                    showModal('事件查询失败，将尝试其他方式获取 NFT...');
                 }
                 nftList.innerHTML = cachedTokenIds.size > 0 
                     ? `<p>您拥有 ${cachedTokenIds.size} 个 NFT：${Array.from(cachedTokenIds).slice(0, 5).join(', ')}${cachedTokenIds.size > 5 ? ' 等...' : ''}</p>`
-                    : '<p>未找到您的 NFT，请确认网络或稍后重试。</p>';
+                    : '<p>未找到您的 NFT，请检查起始 tokenId 和数量。</p>';
+                if (cachedTokenIds.size === 0) {
+                    showModal('未找到您的 NFT，请确认输入的 tokenId 范围！');
+                }
             } catch (error) {
-                showModal(`获取 NFT 失败: ${error.message.includes('429') ? 'API 速率限制，请稍后重试' : error.message || '未知错误'}<br>请确认网络连接。`);
+                showModal(`获取 NFT 失败: ${error.message.includes('429') ? 'API 速率限制，请稍后重试' : error.message || '未知错误'}<br>请确认网络连接或输入参数。`);
                 document.getElementById('nftList').innerHTML = '<p>查询 NFT 失败。</p>';
             } finally {
                 fetchButton.classList.remove('loading');
@@ -507,7 +508,7 @@
                 availableTokenIds.forEach(tokenId => {
                     const option = document.createElement('option');
                     option.value = tokenId;
-                    option.text = `Token ID: ${tokenId}`;
+                    option.text = `OKB #${tokenId}`;
                     select.appendChild(option);
                 });
             } catch (error) {
